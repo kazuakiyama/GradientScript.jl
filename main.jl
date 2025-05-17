@@ -3,7 +3,7 @@ Pkg.activate(@__DIR__);
 
 using Comonicon
 
-include(joinpath(@__DIR__, "modules.jl"))
+include(joinpath(@__DIR__, "driver.jl"))
 include(joinpath(@__DIR__, "skymodel.jl"))
 
 LinearAlgebra.BLAS.set_num_threads(1)
@@ -15,6 +15,7 @@ end
 @main function main(
     uvfile::String;
     outpath::String="",
+    fitsfile::String="",
     array::String="",
     fovx::Float64=200.0, fovy::Float64=fovx,
     psize::Float64=1.0,
@@ -27,13 +28,33 @@ end
     logimage::Bool=false,
     comshift::Bool=false,
 )
-    # field of view in rad
-    fovxrad = μas2rad(fovx)
-    fovyrad = μas2rad(fovy)
+    if isempty(fitsfile)
+        @info "No fits file provided. Using fovx/fovy and nx/ny to define the image grid"
+        # field of view in rad
+        fovxrad = μas2rad(fovx)
+        fovyrad = μas2rad(fovy)
 
-    # number of pixels in the image
-    nx = ceil(Int, fovx / psize)
-    ny = ceil(Int, fovy / psize)
+        # number of pixels in the image
+        nx = ceil(Int, fovx / psize)
+        ny = ceil(Int, fovy / psize)
+    else
+        @info "FITS file provided. Using it to define the image grid"
+        # load image
+        imfits = Comrade.load_fits(fitsfile, IntensityMap)
+
+        # get the pixel information
+        nx, ny = size(imfits)
+        fovxrad = abs(imfits.X[2] - imfits.X[1]) * nx
+        fovyrad = abs(imfits.Y[2] - imfits.Y[1]) * ny
+
+        # get the field of view in μas
+        fovx = rad2μas(fovxrad)
+        fovy = rad2μas(fovyrad)
+
+        # get x, y in μas
+        x = rad2μas(imfits.X[end] - imfits.X[1]) / 2
+        y = rad2μas(imfits.Y[end] - imfits.Y[1]) / 2
+    end
 
     # output directory
     outpath = isempty(outpath) ? first(splitext(uvfile)) : joinpath(outpath, first(splitext(basename(uvfile))))
@@ -44,6 +65,7 @@ end
     @info "Field of view: ($fovx, $fovy) μas"
     @info "number of pixels: ($nx, $ny)"
     @info "Image center offset: ($x, $y) μas"
+    @info "Adding $ferr fractional error to the data"
 
     # load the uv data
     obs = ehtim.obsdata.load_uvfits(uvfile)
@@ -53,7 +75,6 @@ end
     else
         obsavg = obs.flag_uvdist(uv_min=uvmin)
     end
-    @info "Adding $ferr fractional error to the data"
     if ferr > 0
         obsavg = obsavg.add_fractional_noise(ferr)
     end
@@ -76,7 +97,7 @@ end
 
     # define the data terms
     if closure
-        @info "Using closure amplitudes and phases to compute the back projection"
+        @info "Using log closure amplitudes and closure phases to compute the back projection"
         dlca, dcp = extract_table(
             obsavg,
             LogClosureAmplitudes(; snrcut=3),
@@ -101,9 +122,7 @@ end
 
     # Define the image prior
     #   we don't include a prior (denoiser), as this is supposed to be done by R2D2.
-    d = Normal(0, 1)
-    #d = Uniform(-Inf, Inf)
-    prior = (x=Tuple(fill(d, nx * ny)),)
+    prior = (x=MvNormal(ones(ny * ny)),)
 
     # sky model
     skym = SkyModel(skyfunc, prior, g; metadata=skymeta)
@@ -121,13 +140,38 @@ end
 
     # initial image
     x0 = zeros(ndim)
-    lpdf = Comrade.logdensityof(tpost, x0)
-    @info "LogPDF: $lpdf"
+    if isempty(fitsfile) == false
+        @info "Using the provided image for the initial image"
+        x0[1:ndim] = imfits[1:ndim]
+        if skymeta.fluxnorm
+            if logimage
+                # This particular example assumes the fits file stores log intensity
+                linx0 = exp.(x0)
+                linx0 ./= sum(linx0)
+                x0 = log.(linx0)
+            else
+                x0[1:ndim] = imfits[1:ndim]
+                x0 ./= sum(imfits)
+            end
+        end
+    elseif closure
+        @info "Using a Gaussian prior for the initial image"
+        initimage = intensitymap(modify(Gaussian(), Stretch(fovxrad, fovyrad)), g)
+        x0[1:ndim] = initimage[1:ndim]
+        if logimage
+            x0 = log.(x0)
+        end
+    else
+        @info "Using an empty image for the initial image"
+    end
 
-    # gradient image
-    @info "Computing the gradient image:"
-    outs = Comrade.LogDensityProblems.logdensity_and_gradient(tpost, x0)
-    gradimg = IntensityMap(reshape(outs.gradient, size(g)...), g)
+    # evaluate the log posterior
+    @info "Computing the log likelihood and its gradient"
+    loglh, dloglh = loglikelihood_and_gradient(post, x0)
+    @info "LogLikelihood: $(loglh)"
+
+    # convert the gradient to an intensitymap object
+    gradimg = IntensityMap(reshape(dloglh, size(g)...), g)
 
     # output results
     @info "Outputing to $outpath"

@@ -2,7 +2,7 @@ function LinearImage(θ, metadata)
     (; x) = θ
     (; fluxnorm, comshift, grid) = metadata
 
-    rast = reshape(collect(x), size(grid)...)
+    rast = reshape(x, size(grid)...)
 
     if fluxnorm
         rast = rast ./ sum(rast)
@@ -22,7 +22,7 @@ function LogImage(θ, metadata)
     (; x) = θ
     (; fluxnorm, comshift, grid) = metadata
 
-    rast = reshape(exp.(collect(x)), size(grid)...)
+    rast = reshape(exp.(x), size(grid)...)
 
     # this is effectively using softmax transformation
     # which is an inverce of the centered logratio transform
