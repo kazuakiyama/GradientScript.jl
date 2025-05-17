@@ -16,12 +16,10 @@ end
     uvfile::String;
     outpath::String="",
     fitsfile::String="",
-    array::String="",
     fovx::Float64=200.0, fovy::Float64=fovx,
     psize::Float64=1.0,
     x::Float64=0.0, y::Float64=0.0,
     uvmin::Float64=0e9,
-    benchmark::Bool=false,
     scanavg::Bool=false,
     ferr::Float64=0.0,
     closure::Bool=false,
@@ -60,7 +58,6 @@ end
     outpath = isempty(outpath) ? first(splitext(uvfile)) : joinpath(outpath, first(splitext(basename(uvfile))))
 
     @info "Fitting the data: $uvfile"
-    @info "Loading the array file: $array"
     @info "Outputing to $outpath"
     @info "Field of view: ($fovx, $fovy) μas"
     @info "number of pixels: ($nx, $ny)"

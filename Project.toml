@@ -4,6 +4,7 @@ Comrade = "99d987ce-9a1e-4df8-bc0b-1ea019aa547b"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Pyehtim = "3d61700d-6e5b-419a-8e22-9c066cf00468"
 VLBIImagePriors = "b1ba175b-8447-452c-b961-7db2d6f7a029"
 
 [compat]
